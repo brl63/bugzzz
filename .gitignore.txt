@@ -1,0 +1,14 @@
+# PICO-8 exports & binaries
+*.html
+*.js
+*.bin
+*.zip
+*.p8.rom
+
+# OS & Editor temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+.vscode/
+.idea/
