@@ -2,9 +2,15 @@ pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
 function _init()
+    state = 0
+    diff_sel = 2
+    diff_names = {"easy", "medium", "hard"}
+
     plx = 44
     ply = 23
     speed = 2
+    hit_dist_x = 18
+    hit_dist_y = 18
 
     sleeper_x = 48
     sleeper_y = 23
@@ -15,9 +21,73 @@ function _init()
     annoy_level = 0
     max_annoy = 100
     is_annoying = false
-    speed_of_annoy = 2
 
     game_won = false
+    game_over = false
+
+    sleeper_anger = 0
+    is_warning = false
+    warning_timer = 0
+
+    is_swatting = false
+    swat_timer = 0
+    swat_frame = 1
+    swat_sprs = {34, 35, 36}
+
+    apply_difficulty(diff_sel)
+end
+
+function apply_difficulty(d)
+    if d == 1 then
+        speed_of_annoy = 2.5
+        max_anger = 50
+        anger_rate = 0.8
+        swat_delay = 20
+        swat_anim_speed = 5
+    elseif d == 2 then
+        speed_of_annoy = 2
+        max_anger = 35
+        anger_rate = 1.2
+        swat_delay = 15
+        swat_anim_speed = 3
+    elseif d == 3 then
+        speed_of_annoy = 1.5
+        max_anger = 20
+        anger_rate = 1.8
+        swat_delay = 10
+        swat_anim_speed = 2
+    end
+end
+
+function start_game()
+    plx = 44
+    ply = 23
+    annoy_level = 0
+    sleeper_anger = 0
+    is_annoying = false
+    is_warning = false
+    is_swatting = false
+    game_won = false
+    game_over = false
+    apply_difficulty(diff_sel)
+    state = 1
+end
+
+function update_menu()
+    if btnp(⬅️) or btnp(⬆️) then
+        diff_sel -= 1
+        if (diff_sel < 1) diff_sel = 3
+        sfx(0)
+    end
+    if btnp(➡️) or btnp(⬇️) then
+        diff_sel += 1
+        if (diff_sel > 3) diff_sel = 1
+        sfx(0)
+    end
+    if btnp(❎) or btnp(🅾️) then
+        start_game()
+        sfx(1)
+    end
 end
 
 function update_player()
@@ -54,9 +124,69 @@ function update_annoyance()
                 game_won = true
             end
         end
+
+        if not is_warning and not is_swatting then
+            sleeper_anger += anger_rate
+            if sleeper_anger >= max_anger then
+                sleeper_anger = max_anger
+                is_warning = true
+                warning_timer = swat_delay
+            end
+        end
     else
         is_annoying = false
+        if sleeper_anger > 0 and not is_warning and not is_swatting then
+            sleeper_anger -= 0.3
+            if (sleeper_anger < 0) sleeper_anger = 0
+        end
     end
+end
+
+function update_swat()
+    if is_warning then
+        warning_timer -= 1
+        if warning_timer <= 0 then
+            is_warning = false
+            is_swatting = true
+            swat_timer = 0
+            swat_frame = 1
+        end
+    elseif is_swatting then
+        swat_timer += 1
+        if swat_timer % swat_anim_speed == 0 then
+            swat_frame += 1
+            if swat_frame > #swat_sprs then
+                is_swatting = false
+                sleeper_anger = 0
+            end
+        end
+
+        local is_near_hit = abs(plx - sleeper_x) < hit_dist_x and abs(ply - sleeper_y) < hit_dist_y
+        if is_swatting and is_near_hit then
+            game_over = true
+            sfx(2)
+        end
+    end
+end
+
+function draw_menu()
+    rectfill(12, 20, 116, 108, 0)
+    rect(11, 19, 117, 109, 7)
+
+    print("mosquito attack", 32, 32, 10)
+    print("select difficulty:", 26, 48, 7)
+
+    for i = 1, #diff_names do
+        local col = 6
+        local prefix = " "
+        if i == diff_sel then
+            col = 10
+            prefix = ">"
+        end
+        print(prefix .. diff_names[i], 44, 58 + (i * 10), col)
+    end
+
+    print("press x/z to start", 26, 96, 5)
 end
 
 function draw_map()
@@ -70,8 +200,17 @@ function draw_player()
     end
     spr(current_spr, plx, ply, 1, 1, flip)
 
-    if is_annoying and not game_won then
+    if is_annoying and not game_won and not game_over then
         print("zzz!", plx + 6, ply - 5, 10)
+    end
+end
+
+function draw_sleeper()
+    if is_warning then
+        print("!", sleeper_x + 4, sleeper_y - 8, 8)
+    elseif is_swatting then
+        local s = swat_sprs[swat_frame] or swat_sprs[1]
+        spr(s, sleeper_x, sleeper_y)
     end
 end
 
@@ -92,29 +231,49 @@ function draw_win_screen()
     rect(15, 34, 113, 86, 7)
     print("you win!", 48, 45, 10)
     print("play again?", 42, 58, 7)
-    print("press z", 48, 70, 6)
+    print("press z/x", 46, 70, 6)
+end
+
+function draw_game_over()
+    rectfill(16, 35, 112, 85, 0)
+    rect(15, 34, 113, 86, 8)
+    print("game over!", 44, 45, 8)
+    print("you got swatted!", 30, 58, 7)
+    print("press z/x", 46, 70, 6)
 end
 
 function _update()
-    if game_won then
-        if btnp(🅾️) then
-            _init()
+    if state == 0 then
+        update_menu()
+    elseif state == 1 then
+        if game_won or game_over then
+            if btnp(🅾️) or btnp(❎) then
+                state = 0
+            end
+        else
+            update_player()
+            update_annoyance()
+            update_swat()
         end
-    else
-        update_player()
-        update_annoyance()
     end
 end
 
 function _draw()
     cls(0)
 
-    draw_map()
-    draw_player()
-    draw_annoy_bar()
+    if state == 0 then
+        draw_menu()
+    elseif state == 1 then
+        draw_map()
+        draw_player()
+        draw_sleeper()
+        draw_annoy_bar()
 
-    if game_won then
-        draw_win_screen()
+        if game_won then
+            draw_win_screen()
+        elseif game_over then
+            draw_game_over()
+        end
     end
 end
 __gfx__
@@ -134,14 +293,14 @@ ddddddddddddddddeeeeeee666eeeeee116116111161161144944494444444444494444444444444
 d6dddd6d6dd66dddeeeeee6666eeeeee666666666666666644944494999999994499999900000000449444999994449400000000006446005555555500000000
 6666666666666666eeeeeee6666eeeee166116111161166144944494444444444444444444444444449444944494449400000000006666004444444400000000
 6666666666666666eeeeee6666eeeeee116116111161161144944494444444444444444444444444449444944494449400000000444444444444444400000000
-00000000449444940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000999444940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-06666660444444940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-60000006444444940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-60000006444444940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-06666660999999940000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000444444440000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000444444440000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000004494449400ff0000ff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000009994449400ff000000f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+06666660444444940fff0000f00f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+60000006444444940fff0000ff0f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+60000006444444940fff00000ffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+06666660999999940fff0000ffffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000004444444400ff000000fffff000ffffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000004444444400ff000000ffffffffffffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
